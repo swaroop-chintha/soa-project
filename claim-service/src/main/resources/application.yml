@@ -1,0 +1,96 @@
+server:
+  port: ${PORT:8082}
+
+spring:
+  application:
+    name: claim-service
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:9000/eureka/}
+    registry-fetch-interval-seconds: 3
+    healthcheck:
+      enabled: true
+  instance:
+    instance-id: ${spring.application.name}:${server.port}
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 3
+    lease-expiration-duration-in-seconds: 10
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      policyService:
+        sliding-window-size: ${CB_POLICY_WINDOW_SIZE:10}
+        minimum-number-of-calls: ${CB_POLICY_MIN_CALLS:5}
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        wait-duration-in-open-state: ${CB_POLICY_WAIT_OPEN:5s}
+        failure-rate-threshold: ${CB_POLICY_FAIL_RATE:50}
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - com.aegis.claim.exception.ServiceCommunicationException
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+      approvalService:
+        sliding-window-size: ${CB_APPROVAL_WINDOW_SIZE:10}
+        minimum-number-of-calls: ${CB_APPROVAL_MIN_CALLS:5}
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        wait-duration-in-open-state: ${CB_APPROVAL_WAIT_OPEN:5s}
+        failure-rate-threshold: ${CB_APPROVAL_FAIL_RATE:50}
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - com.aegis.claim.exception.ServiceCommunicationException
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+  retry:
+    instances:
+      policyService:
+        max-attempts: ${RETRY_POLICY_MAX_ATTEMPTS:3}
+        wait-duration: ${RETRY_POLICY_WAIT_MS:500ms}
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+      approvalService:
+        max-attempts: ${RETRY_APPROVAL_MAX_ATTEMPTS:2}
+        wait-duration: ${RETRY_APPROVAL_WAIT_MS:500ms}
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+  timelimiter:
+    instances:
+      policyService:
+        timeout-duration: ${TIMEOUT_POLICY_SERVICE:3s}
+      approvalService:
+        timeout-duration: ${TIMEOUT_APPROVAL_SERVICE:3s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSS} %-5level [%X{correlationId:-NO_CORR}] [port:${server.port}] [%thread] %logger{36} : %msg%n"
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.aegis.claim: ${LOG_LEVEL_APP:INFO}
+    io.github.resilience4j: ${LOG_LEVEL_RESILIENCE:INFO}

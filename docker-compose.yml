@@ -1,0 +1,253 @@
+version: '3.8'
+
+networks:
+  aegis-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+
+services:
+  # ============================================================================
+  # Production Database - Logical isolation per microservice
+  # ============================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: aegis-postgres
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-aegis_admin}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-CHANGE_ME_DB_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - ./docker/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-aegis_admin} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - aegis-net
+
+  # ============================================================================
+  # Service Discovery
+  # ============================================================================
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    container_name: aegis-eureka-server
+    ports:
+      - "${EUREKA_PORT:-8761}:8761"
+    environment:
+      PORT: 8761
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_EUREKA: ${LOG_LEVEL_APP:-INFO}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    networks:
+      - aegis-net
+
+  # ============================================================================
+  # Authentication Service
+  # ============================================================================
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: aegis-auth-service
+    ports:
+      - "${AUTH_PORT:-8084}:8084"
+    environment:
+      PORT: 8084
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET:-d41d8cd98f00b204e9800998ecf8427e_aegis_secure_jwt_secret_key_2026_spring_boot_3_3_4}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      AUTH_ADMIN_PASSWORD: ${AUTH_ADMIN_PASSWORD:-admin123}
+      AUTH_USER_PASSWORD: ${AUTH_USER_PASSWORD:-user123}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - aegis-net
+
+  # ============================================================================
+  # Policy Service
+  # ============================================================================
+  policy-service:
+    build:
+      context: ./policy-service
+      dockerfile: Dockerfile
+    container_name: aegis-policy-service
+    ports:
+      - "${POLICY_PORT:-8081}:8081"
+    environment:
+      PORT: 8081
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: policy_db
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-aegis_admin}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-CHANGE_ME_DB_PASSWORD}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-10}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-2}
+      DB_POOL_CONN_TIMEOUT: ${DB_POOL_CONN_TIMEOUT:-10000}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - aegis-net
+
+  # ============================================================================
+  # Approval Service
+  # ============================================================================
+  approval-service:
+    build:
+      context: ./approval-service
+      dockerfile: Dockerfile
+    container_name: aegis-approval-service
+    ports:
+      - "${APPROVAL_PORT:-8083}:8083"
+    environment:
+      PORT: 8083
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: approval_db
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-aegis_admin}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-CHANGE_ME_DB_PASSWORD}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-10}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-2}
+      DB_POOL_CONN_TIMEOUT: ${DB_POOL_CONN_TIMEOUT:-10000}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - aegis-net
+
+  # ============================================================================
+  # Claim Service
+  # ============================================================================
+  claim-service:
+    build:
+      context: ./claim-service
+      dockerfile: Dockerfile
+    container_name: aegis-claim-service
+    ports:
+      - "${CLAIM_PORT:-8082}:8082"
+    environment:
+      PORT: 8082
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: claim_db
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-aegis_admin}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-CHANGE_ME_DB_PASSWORD}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-10}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-2}
+      DB_POOL_CONN_TIMEOUT: ${DB_POOL_CONN_TIMEOUT:-10000}
+      TIMEOUT_POLICY_SERVICE: ${TIMEOUT_POLICY_SERVICE:-3s}
+      TIMEOUT_APPROVAL_SERVICE: ${TIMEOUT_APPROVAL_SERVICE:-3s}
+      RETRY_POLICY_MAX_ATTEMPTS: ${RETRY_POLICY_MAX_ATTEMPTS:-3}
+      RETRY_APPROVAL_MAX_ATTEMPTS: ${RETRY_APPROVAL_MAX_ATTEMPTS:-2}
+      CB_POLICY_WINDOW_SIZE: ${CB_POLICY_WINDOW_SIZE:-10}
+      CB_POLICY_MIN_CALLS: ${CB_POLICY_MIN_CALLS:-5}
+      CB_POLICY_FAIL_RATE: ${CB_POLICY_FAIL_RATE:-50}
+      CB_POLICY_WAIT_OPEN: ${CB_POLICY_WAIT_OPEN:-5s}
+      CB_APPROVAL_WINDOW_SIZE: ${CB_APPROVAL_WINDOW_SIZE:-10}
+      CB_APPROVAL_MIN_CALLS: ${CB_APPROVAL_MIN_CALLS:-5}
+      CB_APPROVAL_FAIL_RATE: ${CB_APPROVAL_FAIL_RATE:-50}
+      CB_APPROVAL_WAIT_OPEN: ${CB_APPROVAL_WAIT_OPEN:-5s}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      policy-service:
+        condition: service_healthy
+      approval-service:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 35s
+    networks:
+      - aegis-net
+
+  # ============================================================================
+  # API Gateway
+  # ============================================================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: aegis-api-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      PORT: 8080
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET:-d41d8cd98f00b204e9800998ecf8427e_aegis_secure_jwt_secret_key_2026_spring_boot_3_3_4}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173,http://localhost:8080}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-30}
+      AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-60}
+      LOG_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
+      LOG_LEVEL_APP: ${LOG_LEVEL_APP:-INFO}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      claim-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - aegis-net

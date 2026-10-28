@@ -1,0 +1,149 @@
+server:
+  port: ${PORT:8080}
+  max-http-request-header-size: 16KB
+
+spring:
+  application:
+    name: api-gateway
+  codec:
+    max-in-memory-size: 512KB
+  cloud:
+    loadbalancer:
+      cache:
+        ttl: 2s
+    gateway:
+      httpclient:
+        connect-timeout: 3000
+        response-timeout: 5s
+        pool:
+          type: ELASTIC
+          max-idle-time: 15s
+      routes:
+        # Auth Routes
+        - id: auth-service-route
+          uri: lb://auth-service
+          predicates:
+            - Path=/auth/**
+
+        - id: auth-service-v1-route
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - StripPrefix=2
+
+        - id: auth-service-oauth-callback-route
+          uri: lb://auth-service
+          predicates:
+            - Path=/login/oauth2/code/**
+
+
+        # Policy Routes
+        - id: policy-service-route
+          uri: lb://policy-service
+          predicates:
+            - Path=/policies/**
+
+        - id: policy-service-v1-route
+          uri: lb://policy-service
+          predicates:
+            - Path=/api/v1/policies/**
+          filters:
+            - StripPrefix=2
+
+        # Claim Routes
+        - id: claim-service-route
+          uri: lb://claim-service
+          predicates:
+            - Path=/claims/**
+          filters:
+            - name: Retry
+              args:
+                retries: 2
+                methods: GET
+                series: SERVER_ERROR
+                exceptions: java.io.IOException, java.util.concurrent.TimeoutException
+
+        - id: claim-service-v1-route
+          uri: lb://claim-service
+          predicates:
+            - Path=/api/v1/claims/**
+          filters:
+            - StripPrefix=2
+            - name: Retry
+              args:
+                retries: 2
+                methods: GET
+                series: SERVER_ERROR
+                exceptions: java.io.IOException, java.util.concurrent.TimeoutException
+
+        # Claim WebSocket Routes
+        - id: claim-service-ws-route
+          uri: lb://claim-service
+          predicates:
+            - Path=/ws-claims/**
+
+        - id: claim-service-ws-v1-route
+          uri: lb://claim-service
+          predicates:
+            - Path=/api/v1/ws-claims/**
+          filters:
+            - StripPrefix=2
+
+        # Approval Routes
+        - id: approval-service-route
+          uri: lb://approval-service
+          predicates:
+            - Path=/approvals/**
+
+        - id: approval-service-v1-route
+          uri: lb://approval-service
+          predicates:
+            - Path=/api/v1/approvals/**
+          filters:
+            - StripPrefix=2
+
+jwt:
+  secret: ${JWT_SECRET:d41d8cd98f00b204e9800998ecf8427e_aegis_secure_jwt_secret_key_2026_spring_boot_3_3_4}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://localhost:8080}
+
+gateway:
+  ratelimit:
+    auth:
+      max-requests: ${AUTH_RATE_LIMIT_MAX:30}
+      window-seconds: ${AUTH_RATE_LIMIT_WINDOW:60}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:9000/eureka/}
+    registry-fetch-interval-seconds: 3
+  instance:
+    instance-id: ${spring.application.name}:${server.port}
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 3
+    lease-expiration-duration-in-seconds: 10
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSS} %-5level [%X{correlationId:-NO_CORR}] [%thread] %logger{36} : %msg%n"
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.aegis.gateway: ${LOG_LEVEL_APP:INFO}

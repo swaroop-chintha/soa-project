@@ -1,0 +1,487 @@
+### ==============================================================================
+### Aegis Claims Platform - Comprehensive REST Client API Test Suite
+### Compatible with: VS Code REST Client, IntelliJ HTTP Client, Chrome Extensions
+### Architecture: Client -> API Gateway (:8080) -> Eureka Discovery (:9000) -> Services
+### Database: PostgreSQL (policy_db, claim_db, approval_db)
+### ==============================================================================
+
+@gatewayUrl = http://localhost:8080
+@eurekaUrl = http://localhost:9000
+
+### ==============================================================================
+### SECTION 1: AUTHENTICATION & JWT TOKEN EXTRACTION
+### ==============================================================================
+
+### 1.1 Login as ADMIN (Returns JWT with ROLE_ADMIN)
+# @name adminLogin
+POST {{gatewayUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+### Extracted Admin Token
+@adminToken = {{adminLogin.response.body.token}}
+
+
+### 1.2 Login as REGULAR USER (Returns JWT with ROLE_USER)
+# @name userLogin
+POST {{gatewayUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "user",
+  "password": "user123"
+}
+
+### Extracted User Token
+@userToken = {{userLogin.response.body.token}}
+
+
+### 1.3 Failed Login with Invalid Password (Expected: 401 Unauthorized)
+POST {{gatewayUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "WrongPassword999!"
+}
+
+
+### 1.4 Failed Login with Non-Existent User (Expected: 401 Unauthorized)
+POST {{gatewayUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "nonexistent_officer",
+  "password": "password123"
+}
+
+
+### ==============================================================================
+### SECTION 2: POLICY MANAGEMENT (PostgreSQL Persistence via API Gateway)
+### ==============================================================================
+
+### 2.1 List All Policies from PostgreSQL (ADMIN / USER)
+GET {{gatewayUrl}}/policies
+Authorization: Bearer {{adminToken}}
+
+
+### 2.2 Get Active Auto Policy (Bruce Wayne - $75,000 Coverage)
+GET {{gatewayUrl}}/policies/1
+Authorization: Bearer {{adminToken}}
+
+
+### 2.3 Get Active Health Policy (Clark Kent - $100,000 Coverage)
+GET {{gatewayUrl}}/policies/2
+Authorization: Bearer {{adminToken}}
+
+
+### 2.4 Get Active Property Policy (Diana Prince - $250,000 Coverage)
+GET {{gatewayUrl}}/policies/3
+Authorization: Bearer {{adminToken}}
+
+
+### 2.5 Get Expired Auto Policy (Victor Stone - $30,000 Coverage - Expired 2025)
+GET {{gatewayUrl}}/policies/6
+Authorization: Bearer {{adminToken}}
+
+
+### 2.6 Query Non-Existent Policy (Expected: 404 Not Found)
+GET {{gatewayUrl}}/policies/9999
+Authorization: Bearer {{adminToken}}
+
+
+### 2.7 Create New Corporate Fleet Policy (ADMIN Only - Expected: 201 Created)
+# @name createPolicy
+POST {{gatewayUrl}}/policies
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-2026-CORP-888",
+  "customerName": "Queen Industries Cargo",
+  "policyType": "COMMERCIAL",
+  "coverageAmount": 600000.00,
+  "startDate": "2026-01-01",
+  "endDate": "2026-12-31",
+  "status": "ACTIVE"
+}
+
+
+### 2.8 Create Policy with Duplicate Policy Number (Expected: 400 Bad Request)
+POST {{gatewayUrl}}/policies
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-2026-AUTO-001",
+  "customerName": "Imposter Bruce",
+  "policyType": "AUTO",
+  "coverageAmount": 50000.00,
+  "startDate": "2026-01-01",
+  "endDate": "2026-12-31",
+  "status": "ACTIVE"
+}
+
+
+### 2.9 Create Policy with Invalid Negative Coverage (Expected: 400 Bad Request)
+POST {{gatewayUrl}}/policies
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-2026-INVALID-001",
+  "customerName": "Invalid Applicant",
+  "policyType": "AUTO",
+  "coverageAmount": -25000.00,
+  "startDate": "2026-01-01",
+  "endDate": "2026-12-31",
+  "status": "ACTIVE"
+}
+
+
+### 2.10 Update Existing Policy Coverage and Term (ADMIN Only - Expected: 200 OK)
+PUT {{gatewayUrl}}/policies/1
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-2026-AUTO-001",
+  "customerName": "Bruce Wayne",
+  "policyType": "COMPREHENSIVE",
+  "coverageAmount": 85000.00,
+  "startDate": "2026-01-01",
+  "endDate": "2026-12-31",
+  "status": "ACTIVE"
+}
+
+
+### 2.11 Validate Active Policy #1 (Expected: valid = true, active = true)
+GET {{gatewayUrl}}/policies/1/validate
+Authorization: Bearer {{adminToken}}
+
+
+### 2.12 Validate Expired Policy #6 (Expected: valid = false, status = EXPIRED)
+GET {{gatewayUrl}}/policies/6/validate
+Authorization: Bearer {{adminToken}}
+
+
+### 2.13 Delete Policy by ID (ADMIN Only - Expected: 204 No Content)
+DELETE {{gatewayUrl}}/policies/8
+Authorization: Bearer {{adminToken}}
+
+
+### ==============================================================================
+### SECTION 3: CLAIM LIFECYCLE & STATE MACHINE SCENARIOS
+### (Triggers Spring RestClient inter-service calls across Eureka & Gateway)
+### ==============================================================================
+
+### 3.1 Scenario A: Auto-Approved Auto Claim (Within Coverage Limit)
+# Evaluates $15,000 against $85,000 coverage on Policy 1 -> AUTO-APPROVED
+# @name submitApprovedClaim
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+Idempotency-Key: claim-auto-approved-auto-01
+
+{
+  "policyId": 1,
+  "customerName": "Bruce Wayne",
+  "claimAmount": 15000.00,
+  "description": "Front fender and sensor assembly repair",
+  "claimDate": "2026-05-10"
+}
+
+
+### 3.2 Scenario B: Auto-Approved Health Claim (Clark Kent - Policy 2)
+# Evaluates $8,500 against $100,000 coverage on Policy 2 -> AUTO-APPROVED
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+Idempotency-Key: claim-auto-approved-health-02
+
+{
+  "policyId": 2,
+  "customerName": "Clark Kent",
+  "claimAmount": 8500.00,
+  "description": "Annual specialized medical diagnostics and lab analysis",
+  "claimDate": "2026-05-12"
+}
+
+
+### 3.3 Scenario C: Auto-Approved Property Claim (Diana Prince - Policy 3)
+# Evaluates $50,000 against $250,000 coverage on Policy 3 -> AUTO-APPROVED
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+Idempotency-Key: claim-auto-approved-property-03
+
+{
+  "policyId": 3,
+  "customerName": "Diana Prince",
+  "claimAmount": 50000.00,
+  "description": "Roof restoration after thunderstorm damage",
+  "claimDate": "2026-05-14"
+}
+
+
+### 3.4 Scenario D: Claim Exceeding Policy Coverage (REJECTED by Adjudication Engine)
+# Policy 4 has $15,000 cap. Submitting $45,000 claim causes Approval Service rejection.
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+Idempotency-Key: claim-excess-rejected-04
+
+{
+  "policyId": 4,
+  "customerName": "Barry Allen",
+  "claimAmount": 45000.00,
+  "description": "Supersonic velocity luggage loss exceeding coverage",
+  "claimDate": "2026-06-15"
+}
+
+
+### 3.5 Scenario E: Claim on Expired Policy (REJECTED at Intake Validation)
+# Policy 6 has status EXPIRED (2025). Rejected during Policy Service check.
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+Idempotency-Key: claim-expired-rejected-05
+
+{
+  "policyId": 6,
+  "customerName": "Victor Stone",
+  "claimAmount": 8000.00,
+  "description": "Hardware diagnostics claim on lapsed policy",
+  "claimDate": "2026-07-20"
+}
+
+
+### 3.6 Scenario F: Claim on Non-Existent Policy (REJECTED: Policy Not Found)
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+Idempotency-Key: claim-nonexistent-policy-06
+
+{
+  "policyId": 9999,
+  "customerName": "Unknown Claimant",
+  "claimAmount": 5000.00,
+  "description": "Claim on unregistered ghost policy",
+  "claimDate": "2026-07-22"
+}
+
+
+### 3.7 Scenario G: Input Validation Failure - Negative Claim Amount (Expected: 400 Bad Request)
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "policyId": 1,
+  "customerName": "Bruce Wayne",
+  "claimAmount": -500.00,
+  "description": "Negative amount test",
+  "claimDate": "2026-05-10"
+}
+
+
+### 3.8 Scenario H: Input Validation Failure - Missing Customer Name (Expected: 400 Bad Request)
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "policyId": 1,
+  "customerName": "",
+  "claimAmount": 2500.00,
+  "description": "Missing customer name test",
+  "claimDate": "2026-05-10"
+}
+
+
+### 3.9 Scenario I: Idempotency Protection Re-Submission
+# Re-submitting with identical Idempotency-Key returns existing claim with zero duplicate records
+POST {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+Idempotency-Key: claim-auto-approved-auto-01
+
+{
+  "policyId": 1,
+  "customerName": "Bruce Wayne",
+  "claimAmount": 15000.00,
+  "description": "Front fender and sensor assembly repair",
+  "claimDate": "2026-05-10"
+}
+
+
+### 3.10 Query All Claims in System
+GET {{gatewayUrl}}/claims
+Authorization: Bearer {{userToken}}
+
+
+### 3.11 Query Claim Details by ID (e.g. Claim 1)
+GET {{gatewayUrl}}/claims/1
+Authorization: Bearer {{userToken}}
+
+
+### 3.12 Query Complete State Transition Audit Trail (e.g. Claim 1)
+# Demonstrates: SUBMITTED -> POLICY_VALIDATED -> UNDER_REVIEW -> APPROVED with timestamps and changedBy
+GET {{gatewayUrl}}/claims/1/history
+Authorization: Bearer {{userToken}}
+
+
+### 3.13 State Machine Terminal State Violation Check (Expected: 400 Bad Request)
+# Attempting to transition an already APPROVED claim to REJECTED violates terminal state rules
+PUT {{gatewayUrl}}/claims/1/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "REJECTED",
+  "reason": "Post-approval reversal attempt (Terminal status violation)"
+}
+
+
+### ==============================================================================
+### SECTION 4: APPROVAL & UNDERWRITING ENGINE (Approval Service via Gateway)
+### ==============================================================================
+
+### 4.1 Direct Adjudication: Approved Case (Claim Amount <= Coverage Amount)
+POST {{gatewayUrl}}/approvals/evaluate
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "claimId": 801,
+  "policyId": 1,
+  "claimAmount": 25000.00,
+  "coverageAmount": 85000.00,
+  "description": "Direct Underwriting Simulation - Approved"
+}
+
+
+### 4.2 Direct Adjudication: Rejected Case (Claim Amount > Coverage Amount)
+POST {{gatewayUrl}}/approvals/evaluate
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "claimId": 802,
+  "policyId": 4,
+  "claimAmount": 75000.00,
+  "coverageAmount": 15000.00,
+  "description": "Direct Underwriting Simulation - Exceeds Coverage"
+}
+
+
+### 4.3 Direct Adjudication: Validation Failure (Negative Coverage -> 400 Bad Request)
+POST {{gatewayUrl}}/approvals/evaluate
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "claimId": 803,
+  "policyId": 1,
+  "claimAmount": 1000.00,
+  "coverageAmount": -5000.00,
+  "description": "Invalid negative coverage test"
+}
+
+
+### 4.4 Query Adjudication Decision for Claim 1
+GET {{gatewayUrl}}/approvals/claim/1
+Authorization: Bearer {{adminToken}}
+
+
+### 4.5 Query Adjudication Decision by Decision Record ID
+GET {{gatewayUrl}}/approvals/1
+Authorization: Bearer {{adminToken}}
+
+
+### 4.6 List All Historical Adjudication Decisions
+GET {{gatewayUrl}}/approvals
+Authorization: Bearer {{adminToken}}
+
+
+### 4.7 Query Adjudication for Non-Existent Claim (Expected: 404 Not Found)
+GET {{gatewayUrl}}/approvals/claim/9999
+Authorization: Bearer {{adminToken}}
+
+
+### ==============================================================================
+### SECTION 5: SECURITY, RBAC & PERIMETER DEFENSE CHECKS
+### ==============================================================================
+
+### 5.1 RBAC Guard: USER attempting to create a policy (Expected: 403 Forbidden)
+POST {{gatewayUrl}}/policies
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "policyNumber": "POL-UNAUTHORIZED-MUTATION",
+  "customerName": "Malicious User",
+  "policyType": "AUTO",
+  "coverageAmount": 10000.00,
+  "startDate": "2026-01-01",
+  "endDate": "2026-12-31",
+  "status": "ACTIVE"
+}
+
+
+### 5.2 RBAC Guard: USER attempting to delete a policy (Expected: 403 Forbidden)
+DELETE {{gatewayUrl}}/policies/1
+Authorization: Bearer {{userToken}}
+
+
+### 5.3 RBAC Guard: USER attempting to manually override claim status (Expected: 403 Forbidden)
+PUT {{gatewayUrl}}/claims/1/status
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "status": "APPROVED",
+  "reason": "Attempted self-approval"
+}
+
+
+### 5.4 Missing Authorization Header on Protected Endpoint (Expected: 401 Unauthorized)
+GET {{gatewayUrl}}/claims
+
+
+### 5.5 Tampered / Invalid JWT Token (Expected: 401 Unauthorized)
+GET {{gatewayUrl}}/policies
+Authorization: Bearer eyJhbGciOiJIUzUxMiJ9.fakeHeader.fakeSignature
+
+
+### 5.6 Expired JWT Token (Expected: 401 Unauthorized)
+GET {{gatewayUrl}}/policies
+Authorization: Bearer eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ1c2VyIiwicm9sZSI6IlJPTEVfVVNFUiIsImlhdCI6MTYwMDAwMDAwMCwiZXhwIjoxNjAwMDAwMDEwfQ.tamperedSignature
+
+
+### 5.7 Non-Bearer Authorization Scheme (Expected: 401 Unauthorized)
+GET {{gatewayUrl}}/policies
+Authorization: Basic YWRtaW46YWRtaW4xMjM=
+
+
+### ==============================================================================
+### SECTION 6: SERVICE DISCOVERY & TOPOLOGY OBSERVABILITY
+### ==============================================================================
+
+### 6.1 Query All Microservices Registered in Eureka (Port 9000)
+GET {{eurekaUrl}}/eureka/apps
+Accept: application/json
+
+
+### 6.2 Check API Gateway Health Endpoint
+GET {{gatewayUrl}}/actuator/health
+Accept: application/json
+
+
+### 6.3 Check Eureka Discovery Server Health Endpoint
+GET {{eurekaUrl}}/actuator/health
+Accept: application/json

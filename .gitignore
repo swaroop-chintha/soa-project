@@ -1,0 +1,56 @@
+# Compiled class files & build artifacts
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Environment and Secret files
+.env
+.env.local
+*.pem
+*.key
+*.p12
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# Temp files
+*.tmp
+*.bak
+*~
+scratch/*.log
+scratch/*.db
+
+# Node / Frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
